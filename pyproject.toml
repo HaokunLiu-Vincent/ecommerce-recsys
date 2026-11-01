@@ -1,0 +1,50 @@
+[project]
+name = "hm-recsys"
+version = "0.1.0"
+description = "H&M personalized recommendation system"
+requires-python = ">=3.12,<3.13"
+dependencies = ["duckdb>=1.1,<2"]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "pyright",
+    "pytest",
+    "pre-commit",
+    "nbformat>=5.11.1",
+    "numpy>=2.5.4",
+    "pyarrow>=26.0.0",
+    "scipy>=1.18.1",
+    "scikit-learn>=1.9.1",
+    "lightgbm>=4.7.0",
+    "implicit>=0.7.3",
+    "faiss-cpu>=1.15.1",
+    "torch>=2.15.0",
+    "psutil>=7.2.2",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = ["data", ".venv", ".pyright", "outputs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+include = ["**/*.py"]
+exclude = ["data", "notebooks", ".venv", "**/__pycache__", "**/.pytest_cache", "**/.ruff_cache", "**/.mypy_cache", ".pyright", "outputs"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-ra"
+norecursedirs = ["data", "docs", "notebooks", ".venv", ".git"]
