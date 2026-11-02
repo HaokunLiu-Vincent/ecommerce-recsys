@@ -4,10 +4,7 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
-import faiss
 import numpy as np
-from implicit.cpu.als import AlternatingLeastSquares
-from scipy.sparse import csr_matrix
 
 from hm_recsys.content import FloatArray
 from hm_recsys.contracts import (
@@ -19,6 +16,7 @@ from hm_recsys.contracts import (
     write_json,
 )
 from hm_recsys.data import Sample, Transaction
+from hm_recsys.pilot.vectors import BlockIndex
 
 REGULARIZATION = 0.05
 
@@ -34,15 +32,19 @@ def confidence(
     return {i: float(1 + 20 * np.log1p(value)) for i, value in weights.items()}
 
 
-def fold_user(factors: FloatArray, observed: dict[int, float]) -> FloatArray:
+def fold_user(
+    factors: FloatArray, observed: dict[int, float], *, gram: np.ndarray | None = None
+) -> FloatArray:
     """Solve regularized implicit least squares with fixed, unnormalized items."""
     if not observed:
         return np.zeros(factors.shape[1], dtype=np.float32)
     positions = list(observed)
     conf = np.array([observed[i] for i in positions], dtype=np.float64)
     selected = factors[positions].astype(np.float64)
-    y = factors.astype(np.float64)
-    lhs = y.T @ y + (selected.T * (conf - 1)) @ selected
+    if gram is None:
+        y = factors.astype(np.float64)
+        gram = y.T @ y
+    lhs = gram + (selected.T * (conf - 1)) @ selected
     lhs += np.eye(factors.shape[1]) * REGULARIZATION
     rhs = selected.T @ conf
     return np.linalg.solve(lhs, rhs).astype(np.float32)
@@ -52,6 +54,8 @@ class ExactIndex:
     """Own learned-vector IndexFlatIP; never opens supplied content indexes."""
 
     def __init__(self, ids: list[str], vectors: FloatArray) -> None:
+        import faiss
+
         if len(ids) != len(set(ids)) or len(ids) != len(vectors):
             raise ValueError("Learned index mapping mismatch")
         if not len(ids) or len(ids) > 5000 or not np.isfinite(vectors).all():
@@ -75,6 +79,8 @@ class ExactIndex:
 
     def save(self, folder: Path, name: str) -> None:
         """Persist a separate learned index, vectors, and row map."""
+        import faiss
+
         folder.mkdir(exist_ok=True, parents=True)
         faiss.write_index(self.index, str(folder / f"{name}.faiss"))
         np.save(folder / f"{name}.npy", self.vectors, allow_pickle=False)
@@ -91,6 +97,8 @@ class ExactIndex:
     @classmethod
     def load(cls, folder: Path, name: str) -> "ExactIndex":
         """Verify the saved learned index against its explicit vectors and map."""
+        import faiss
+
         mapping = read_json(folder / f"{name}.json")
         vectors = np.load(folder / f"{name}.npy", allow_pickle=False)
         obj = cls(mapping["article_ids"], vectors)
@@ -110,13 +118,20 @@ class ExactIndex:
 class WALS:
     """Frozen item factors with genuine current-history user folding-in."""
 
-    def __init__(self, index: ExactIndex) -> None:
+    def __init__(self, index: ExactIndex | BlockIndex) -> None:
         self.index = index
         self.mapping = {item: i for i, item in enumerate(index.ids)}
+        self.gram = np.zeros((index.vectors.shape[1], index.vectors.shape[1]))
+        for start in range(0, len(index.ids), 4096):
+            block = index.vectors[start : start + 4096].astype(np.float64)
+            self.gram += block.T @ block
 
     @classmethod
     def fit(cls, sample: Sample, config: Config, run: Path) -> "WALS":
         """Fit implicit ALS on bounded base-only full-confidence CSR data."""
+        from implicit.cpu.als import AlternatingLeastSquares
+        from scipy.sparse import csr_matrix
+
         sample.validate_training(config)
         base = [t for t in sample.transactions if START <= t.day < BASE_END]
         catalog = set(sample.catalog)
@@ -196,7 +211,7 @@ class WALS:
         obs = confidence(history, cutoff=cutoff, vocabulary=self.mapping)
         if not obs:
             return []
-        user = fold_user(self.index.vectors, obs)
+        user = fold_user(self.index.vectors, obs, gram=self.gram)
         return self.index.search(user, active, 50)
 
 
@@ -219,7 +234,9 @@ class TowerRetriever:
 
         if state["model_sha256"] != digest(run / "models/twotower.pt"):
             raise ValueError("Query vectors do not match the frozen tower weights")
-        self.index = ExactIndex.load(run / "indexes", "twotower")
+        self.index: ExactIndex | BlockIndex = ExactIndex.load(
+            run / "indexes", "twotower"
+        )
 
     def retrieve(
         self, user: str, *, before: date, active: set[str]

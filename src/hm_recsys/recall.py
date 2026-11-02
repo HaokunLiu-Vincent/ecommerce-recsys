@@ -124,6 +124,22 @@ class Snapshot:
             neighbors[seed] = top(normalized, self.active, 100)
         return neighbors, pairs
 
+    def item_statistics(self, item: str) -> tuple[float, float]:
+        """Return the shared 28-day distinct-date ratio and purchase-line mean price."""
+        import numpy as np
+
+        rows = self.window(self.by_item.get(item, []), 28)
+        dates: dict[str, set] = defaultdict(set)
+        for row in rows:
+            dates[row.customer].add(row.day)
+        ratio = (
+            sum(len(value) >= 2 for value in dates.values()) / len(dates)
+            if dates
+            else float("nan")
+        )
+        price = float(np.mean([row.price for row in rows])) if rows else float("nan")
+        return ratio, price
+
     def repurchase(
         self, user: str
     ) -> tuple[dict[str, float], Counter, dict[str, date]]:
@@ -157,7 +173,12 @@ class Snapshot:
         return scores, days
 
     def retrieve(
-        self, user: str, wals: WALS, tower: TowerRetriever
+        self,
+        user: str,
+        wals: WALS,
+        tower: TowerRetriever,
+        *,
+        learned: dict[str, list[tuple[str, float]]] | None = None,
     ) -> tuple[list[Candidate], dict[str, list[tuple[str, float]]]]:
         """Generate all six real channels, then retain the complete native union."""
         bucket = age_bucket(self.sample.customers.get(user, {}).get("age"))
@@ -187,10 +208,14 @@ class Snapshot:
             "repurchase": top(repurchase, self.active, 30),
             "sibling": top(sibling, self.active, 30),
             "itemcf": top(cf, self.active, 50),
-            "wals": wals.retrieve(
+            "wals": learned["wals"]
+            if learned is not None
+            else wals.retrieve(
                 self.by_user.get(user, []), cutoff=self.cutoff, active=self.active
             ),
-            "twotower": tower.retrieve(user, before=self.before, active=self.active),
+            "twotower": learned["twotower"]
+            if learned is not None
+            else tower.retrieve(user, before=self.before, active=self.active),
         }
         union: dict[str, Candidate] = {}
         for channel in CHANNELS:

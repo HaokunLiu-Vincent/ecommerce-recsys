@@ -80,7 +80,14 @@ def stop_owned(child: subprocess.Popen) -> None:
     child.wait()
 
 
-def run_stage(stage: str, run: Path, config: Config) -> None:
+def run_stage(
+    stage: str,
+    run: Path,
+    config: Config,
+    *,
+    module: str = "hm_recsys.worker",
+    cwd: Path | None = None,
+) -> None:
     """Run one owned stage and persist monitoring evidence even on failure.
 
     Sampling is not an OS-enforced cap. Shared pages can be double-counted in
@@ -106,7 +113,7 @@ def run_stage(stage: str, run: Path, config: Config) -> None:
         usage["stages"].append({"stage": stage, "status": "blocked", "reason": reason})
         write_json(log, usage)
         raise RuntimeError(reason)
-    command = [sys.executable, "-m", "hm_recsys.worker", stage, str(run)]
+    command = [sys.executable, "-m", module, stage, str(run)]
     with (run / "commands.log").open("a") as handle:
         handle.write(" ".join(command) + "\n")
     start = time.monotonic()
@@ -119,6 +126,7 @@ def run_stage(stage: str, run: Path, config: Config) -> None:
             env=constrained_env(config),
             stdout=output,
             stderr=subprocess.STDOUT,
+            cwd=cwd,
         )
         try:
             while child.poll() is None:

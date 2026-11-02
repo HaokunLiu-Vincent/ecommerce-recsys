@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "run_final_test": false,
+  "quotas": [
+    60,
+    30,
+    30,
+    50,
+    50,
+    50
+  ],
+  "negative_sampling": {
+    "train_only": true,
+    "negatives_per_positive": 20,
+    "hard_fraction": 0.5
+  },
+  "checkpoint_every_steps": 10,
+  "feature_query_batch": 32,
+  "persistence": "verified_stage_delta",
+  "device": "cuda",
+  "profile": "pilot",
+  "folds": [
+    "F1",
+    "Validation"
+  ],
+  "compute": {
+    "threads": 2,
+    "loader_workers": 0,
+    "interop_threads": 1,
+    "max_users": null,
+    "max_catalog": null,
+    "max_transactions": null,
+    "max_queries_per_fold": 1000,
+    "historical_activity_min_dates": null,
+    "wals_factors": 64,
+    "wals_iterations": 3,
+    "tt_batch_size": 512,
+    "tt_epochs": 1,
+    "tt_max_targets": 20000,
+    "tt_max_steps": 100,
+    "tt_dimension": 128,
+    "cluster_count": 128,
+    "cluster_max_rows": null,
+    "cluster_n_init": 1,
+    "cluster_max_iter": 300,
+    "ranker_rounds": 100,
+    "ranker_num_leaves": 63,
+    "ranker_max_depth": 6,
+    "ranker_min_child_samples": 100,
+    "ranker_early_stopping": 50
+  },
+  "batch_change_note": "512 in-batch negatives instead of proposed 2048; explicit resource setting, not equivalent gradient accumulation",
+  "statistics_universe": "complete legal history; never smoke cohort statistics",
+  "training_subset": {
+    "base_users": 5000,
+    "selection": "SHA256(42:customer_id) among pre-Aug-5 purchasers; no activity minimum",
+    "affects_global_statistics": false
+  }
+}

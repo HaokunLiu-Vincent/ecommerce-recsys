@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -245,16 +244,8 @@ class FeatureBuilder:
             values["sales_velocity_7d_vs_28d"] = (sales[7][item] / 7) / (
                 sales[28][item] / 28 + 0.1
             )
-            item_rows = snapshot.window(snapshot.by_item.get(item, []), 28)
-            buyer_dates: dict[str, set] = defaultdict(set)
-            for row in item_rows:
-                buyer_dates[row.customer].add(row.day)
-            values["item_repurchase_ratio_28d"] = (
-                sum(len(dates) >= 2 for dates in buyer_dates.values())
-                / len(buyer_dates)
-                if buyer_dates
-                else float("nan")
-            )
+            ratio, item_price = snapshot.item_statistics(item)
+            values["item_repurchase_ratio_28d"] = ratio
             values["user_age"] = (
                 float(meta_user["age"])
                 if meta_user.get("age") is not None
@@ -264,11 +255,6 @@ class FeatureBuilder:
             values["user_tx_count_30d"] = len(snapshot.window(history, 30))
             values["user_tx_count_90d"] = len(past90)
             values["user_avg_price_90d"] = user_price
-            item_price = (
-                float(np.mean([r.price for r in item_rows]))
-                if item_rows
-                else float("nan")
-            )
             values["price_diff_from_user_avg"] = item_price - user_price
             values["price_ratio_to_user_avg"] = (
                 item_price / user_price if user_price > 0 else float("nan")

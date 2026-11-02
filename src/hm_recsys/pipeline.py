@@ -173,17 +173,31 @@ def build_query_features(
     return feature_table(row_users, ids, blocks), provenance, output
 
 
-def candidates_and_features(run: Path, source: Path, config: Config) -> None:
+def candidates_and_features(
+    run: Path,
+    source: Path,
+    config: Config,
+    *,
+    partitions: list[str] | None = None,
+) -> None:
     """Build four native Train folds and unfiltered sampled Validation."""
     sample = Sample.load(run, config)
     content = load_content(run, sample, source)
     validate_splits(read_json(run / "split_manifest.json")["splits"])
     for folder in ("queries", "labels", "features", "candidates", "predictions"):
         (run / folder).mkdir(exist_ok=True)
-    report: dict = {"partitions": {}}
-    total_rows = 0
+    report: dict = (
+        read_json(run / "candidate_results.json")
+        if partitions is not None and (run / "candidate_results.json").exists()
+        else {"partitions": {}}
+    )
+    total_rows = sum(value["feature_rows"] for value in report["partitions"].values())
     for partition in split_manifest()[:5]:
         name = partition["partition"]
+        if partitions is not None and name not in partitions:
+            continue
+        if name in report["partitions"]:
+            raise ValueError("Refusing to overwrite an already completed fold")
         start = date.fromisoformat(partition["start"])
         cutoff = date.fromisoformat(partition["cutoff"])
         users, labels = query_users(
@@ -255,7 +269,8 @@ def candidates_and_features(run: Path, source: Path, config: Config) -> None:
         }
     report["total_feature_rows"] = total_rows
     write_json(run / "candidate_results.json", report)
-    prepare_inference_input(run)
+    if partitions is None or "Validation" in partitions:
+        prepare_inference_input(run)
 
 
 def prepare_inference_input(run: Path) -> None:
@@ -298,12 +313,20 @@ def seal_run(run: Path, source: Path) -> None:
         for modality in ("text", "image")
     }
     inputs = read_json(run / "input_acceptance.json")["inputs"]
+    portable = manifest.get("portable_inputs", False)
     if any(
-        source_identity(source / name) != identity for name, identity in inputs.items()
+        not compatible_source(source_identity(source / name), identity, portable)
+        for name, identity in inputs.items()
     ):
         raise ValueError("Source file identity changed during smoke execution")
     manifest["source_stat_identity_unchanged"] = True
     write_json(run / "run_manifest.json", manifest)
+
+
+def compatible_source(current: dict, previous: dict, portable: bool) -> bool:
+    """Allow root relocation only for inputs verified by the staging ledger."""
+    keys = ("bytes", "mtime_ns") if portable else tuple(previous)
+    return all(current.get(key) == previous.get(key) for key in keys)
 
 
 def verify_frozen(run: Path, source: Path) -> None:
@@ -319,9 +342,10 @@ def verify_frozen(run: Path, source: Path) -> None:
             != reference["manifest_sha256"]
         ):
             raise ValueError("Source content manifest changed")
-        if (
-            source_identity(folder / f"{modality}_embeddings.npy")
-            != reference["array_identity"]
+        if not compatible_source(
+            source_identity(folder / f"{modality}_embeddings.npy"),
+            reference["array_identity"],
+            manifest.get("portable_inputs", False),
         ):
             raise ValueError("Source content array identity changed")
 

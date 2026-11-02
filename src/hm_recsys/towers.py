@@ -202,10 +202,17 @@ class TwoTower(nn.Module):
         )
 
     @staticmethod
-    def shared_id_mask(batch: int, training: bool) -> torch.Tensor:
+    def shared_id_mask(
+        batch: int,
+        training: bool,
+        *,
+        device: torch.device | str = "cpu",
+    ) -> torch.Tensor:
         """One Bernoulli mask shared by article and product IDs during training."""
         return (
-            (torch.rand(batch, 1) >= 0.25).float() if training else torch.ones(batch, 1)
+            (torch.rand(batch, 1, device=device) >= 0.25).float()
+            if training
+            else torch.ones(batch, 1, device=device)
         )
 
     def item_vectors(
@@ -217,7 +224,7 @@ class TwoTower(nn.Module):
     ) -> torch.Tensor:
         """Encode user-independent item vectors; missing content branches zeroed."""
         branches = [layer(codes[:, i]) for i, layer in enumerate(self.item_embeddings)]
-        drop = self.shared_id_mask(len(codes), self.training)
+        drop = self.shared_id_mask(len(codes), self.training, device=codes.device)
         branches[0] = branches[0] * drop
         branches[1] = branches[1] * drop
         branches.extend(
@@ -272,12 +279,24 @@ def logq_loss(
     ).mean()
 
 
-def fit_towers(sample: Sample, content: ContentBank, config: Config, run: Path) -> dict:
+def fit_towers(
+    sample: Sample,
+    content: ContentBank,
+    config: Config,
+    run: Path,
+    *,
+    checkpoint_folder: Path | None = None,
+    persistent_checkpoint: Path | None = None,
+    persistent_mount_root: Path | None = None,
+    resume_folder: Path | None = None,
+    checkpoint_every_steps: int = 10,
+) -> dict:
     """Perform bounded real CPU updates, then freeze weights and learned indexes."""
     sample.validate_training(config)
     torch.manual_seed(42)
     torch.set_num_threads(config.limit("threads"))
-    torch.set_num_interop_threads(config.limit("interop_threads"))
+    if torch.get_num_interop_threads() != config.limit("interop_threads"):
+        torch.set_num_interop_threads(config.limit("interop_threads"))
     encoder = TowerEncoder(sample, content)
     targets, probabilities = sample_targets(sample, config)
     positives: dict[tuple[str, date], set[str]] = defaultdict(set)
@@ -302,8 +321,39 @@ def fit_towers(sample: Sample, content: ContentBank, config: Config, run: Path) 
     losses: list[float] = []
     used: list[tuple[str, str, str]] = []
     skipped = 0
+    offset = 0
+    checkpoint_identity = (
+        {
+            "sample_files": sample.manifest["file_sha256"],
+            "config": config.values,
+            "maps": encoder.maps,
+            "target_order": [(u, str(d), i) for u, d, i in targets],
+            "build": read_json(run / "run_manifest.json").get("migration_signature"),
+        }
+        if checkpoint_folder is not None
+        else {}
+    )
+    if resume_folder is not None:
+        from hm_recsys.colab.checkpoints import load_checkpoint
+
+        state = load_checkpoint(resume_folder, checkpoint_identity)
+        model.load_state_dict(state["model"])
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        offset = state["next_target_offset"]
+        losses, used, skipped = state["losses"], state["used"], state["skipped"]
+        if checkpoint_folder is not None:
+            from hm_recsys.colab.files import atomic_json, verified_copy
+
+            record = read_json(resume_folder / "latest.json")
+            verified_copy(
+                resume_folder / record["file"],
+                checkpoint_folder / record["file"],
+                expected_sha256=record["sha256"],
+            )
+            atomic_json(checkpoint_folder / "latest.json", record)
     model.train()
-    for start in range(0, len(targets), config.limit("tt_batch_size")):
+    for start in range(offset, len(targets), config.limit("tt_batch_size")):
         if len(losses) >= config.limit("tt_max_steps"):
             break
         batch = targets[start : start + config.limit("tt_batch_size")]
@@ -330,6 +380,32 @@ def fit_towers(sample: Sample, content: ContentBank, config: Config, run: Path) 
         scheduler.step()
         losses.append(float(loss.detach()))
         used.extend((u, str(d), i) for u, d, i in batch)
+        if checkpoint_folder is not None and (
+            len(losses) == 1
+            or len(losses) % checkpoint_every_steps == 0
+            or len(losses) == batches
+            or start + len(batch) >= len(targets)
+        ):
+            from hm_recsys.colab.checkpoints import save_checkpoint
+
+            save_checkpoint(
+                checkpoint_folder,
+                {
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "epoch": 0,
+                    "global_step": len(losses),
+                    "next_target_offset": start + len(batch),
+                    "losses": losses,
+                    "used": used,
+                    "skipped": skipped,
+                    "selected_checkpoint": "only bounded epoch; selection pending",
+                },
+                checkpoint_identity,
+                persistent=persistent_checkpoint,
+                mount_root=persistent_mount_root,
+            )
     changed = float(torch.max(torch.abs(initial - model.text.weight.detach())))
     if not losses or changed == 0:
         raise ValueError("Two-Tower did not update its content projection")
