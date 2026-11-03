@@ -30,7 +30,8 @@ class QueryInputs:
     inputs, while every learned user vector is computed by the loaded model.
     """
 
-    def __init__(self, encoder, part) -> None:
+    def __init__(self, encoder, part, *, max_batch: int = 512) -> None:
+        self.max_batch = max_batch
         history, run = (encoder.history_store, encoder.history_store.run)
         folder = run / "prepared/queries" / part.name
         expected = {
@@ -250,10 +251,10 @@ class QueryInputs:
         }
 
     def users(self, start: int, count: int) -> tuple:
-        """Gather at most 512 queries without history SQL or row encoders."""
+        """Gather bounded queries without history SQL or row encoders."""
         if (
             count < 0
-            or count > 512
+            or count > self.max_batch
             or start < 0
             or (start + count > self.meta["queries"])
         ):

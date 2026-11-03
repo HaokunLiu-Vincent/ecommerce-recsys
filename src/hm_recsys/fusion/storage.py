@@ -66,11 +66,15 @@ class CandidateReader:
         ):
             raise ValueError("Native fusion schema/row count mismatch")
         self.con = connect(Path(":memory:"), run, readonly=False)
+        self.con.execute(
+            "CREATE TEMP TABLE fused_candidates AS SELECT * FROM read_parquet(?)",
+            [str(self.path)],
+        )
 
     def read(self, users: list[str]) -> dict[str, list[Candidate]]:
         """Return complete native candidates in requested-query/article-ID order."""
-        if len(users) > 32 or len(users) != len(set(users)):
-            raise ValueError("Candidate lookup requires at most 32 unique queries")
+        if len(users) > 8192 or len(users) != len(set(users)):
+            raise ValueError("Candidate lookup requires at most 8192 unique queries")
         result: dict[str, list[Candidate]] = {user: [] for user in users}
         if not users:
             return result
@@ -78,11 +82,11 @@ class CandidateReader:
         rows = (
             self.con.execute(
                 (
-                    """SELECT c.* FROM read_parquet(?) c JOIN candidate_users
+                    """SELECT c.* FROM fused_candidates c JOIN candidate_users
                     USING(customer_id) WHERE c.customer_id>=? AND c.customer_id<=?
                 ORDER BY customer_id,article_id"""
                 ),
-                [str(self.path), min(users), max(users)],
+                [min(users), max(users)],
             )
             .to_arrow_table()
             .to_pylist()

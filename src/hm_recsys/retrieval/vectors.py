@@ -30,7 +30,7 @@ def block_topk(
     Sorting is limited to one vector block per query, never all catalog scores
     or a Python catalog-sized pair list. Equal scores survive with ascending IDs.
     """
-    if len(queries) > 32 or k < 1 or block_size < 1:
+    if len(queries) > 8192 or k < 1 or block_size < 1:
         raise ValueError("Invalid exact search batch")
     best: list[list[tuple[str, float]]] = [[] for _ in queries]
     cached = (
@@ -79,7 +79,7 @@ class ActiveBlocks:
 
     def search(self, queries: FloatArray, k: int) -> list[list[tuple[str, float]]]:
         """Partition before lexsort, retaining all exact ties at each block boundary."""
-        if len(queries) > 32 or k < 1:
+        if len(queries) > 8192 or k < 1:
             raise ValueError("Invalid exact search batch")
         best = [[] for _ in queries]
         for rows, names in self.blocks:

@@ -40,9 +40,9 @@ def connect(path: Path, run: Path, *, readonly: bool = True):
     """Open bounded DuckDB with local spill space; caller closes the connection."""
     (run / "tmp").mkdir(exist_ok=True, parents=True)
     con = duckdb.connect(str(path), read_only=readonly)
-    con.execute("SET threads=2")
-    con.execute("SET memory_limit='1GB'")
-    con.execute("SET max_temp_directory_size='8GiB'")
+    con.execute("SET threads=12")
+    con.execute("SET memory_limit='64GB'")
+    con.execute("SET max_temp_directory_size='64GiB'")
     con.execute("SET temp_directory=?", [str(run / "tmp" / path.stem)])
     con.execute("SET preserve_insertion_order=false")
     return con
@@ -353,8 +353,8 @@ class History:
 
     def histories(self, users: list[str], before: date) -> dict[str, list[Transaction]]:
         """Fetch one feature batch; reject large batches before Python allocation."""
-        if len(users) > 32:
-            raise ValueError("History query batch exceeds 32 users")
+        if len(users) > 8192:
+            raise ValueError("History query batch exceeds 8192 users")
         self.con.register("history_users", pa.table({"customer_id": users}))
         sql = (
             "FROM transactions t JOIN history_users USING(customer_id)"
@@ -365,9 +365,9 @@ class History:
             "SELECT count(*) " + sql,
             [before, min(users, default=""), max(users, default="")],
         ).fetchall()[0][0]
-        if count > 100000:
+        if count > 10000000:
             raise RuntimeError(
-                "blocked_resource: feature batch exceeds 100000 history lines"
+                "blocked_resource: feature batch exceeds 10000000 history lines"
             )
         rows = self.con.execute(
             "SELECT t.* "
@@ -384,8 +384,8 @@ class History:
         self, queries: list[tuple[str, date]]
     ) -> list[list[Transaction]]:
         """Latest 20 raw lines per event, excluding all same-day observations."""
-        if len(queries) > 512:
-            raise ValueError("Tower query batch exceeds 512")
+        if len(queries) > 8192:
+            raise ValueError("Tower query batch exceeds 8192")
         self.con.register(
             "event_queries",
             pa.table(
@@ -429,8 +429,8 @@ class History:
 
     def positives(self, queries: list[tuple[str, date]]) -> dict:
         """Complete same-day positives, including events outside the target cap."""
-        if len(queries) > 512:
-            raise ValueError("Positive-set query batch exceeds 512 events")
+        if len(queries) > 8192:
+            raise ValueError("Positive-set query batch exceeds 8192 events")
         self.con.register(
             "positive_queries",
             pa.table(

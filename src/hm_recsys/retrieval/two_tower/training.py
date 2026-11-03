@@ -8,6 +8,7 @@ model/optimizer/scheduler/RNG state is persisted at verified batch boundaries.
 CUDA requests fail explicitly; raw input banks never freeze trainable branches.
 """
 
+import gc
 import time
 from pathlib import Path
 
@@ -30,7 +31,6 @@ from hm_recsys.retrieval.two_tower.inputs import SqlEncoder
 from hm_recsys.retrieval.two_tower.model import TwoTower, logq_loss, positive_mask
 from hm_recsys.retrieval.two_tower.prepared import Prepared
 from hm_recsys.retrieval.two_tower.prepared import identity as cache_identity
-from hm_recsys.retrieval.vectors import ActiveBlocks, BlockIndex, block_topk
 from hm_recsys.runtime.checkpoints import load_checkpoint, save_checkpoint
 from hm_recsys.runtime.settings import Cadence
 
@@ -73,34 +73,51 @@ def item_vectors(
         status=("started"),
         force=True,
     )
+    step = min(4096, encoder.bank.max_batch) if encoder.bank else 4096
     model.eval()
     with torch.no_grad():
-        for start in range(0, len(ids), 512):
-            vectors[start : start + 512] = (
+        for start in range(0, len(ids), step):
+            end = min(start + step, len(ids))
+            vectors[start:end] = (
                 model.item_vectors(
                     *(
-                        encoder.bank.items(
-                            np.arange(start, min(start + 512, len(ids)), dtype=np.int64)
-                        )
+                        encoder.bank.items(np.arange(start, end, dtype=np.int64))
                         if encoder.bank
-                        else move(encoder.items(ids[start : start + 512]), device)
+                        else move(encoder.items(ids[start:end]), device)
                     )
                 )
                 .cpu()
                 .numpy()
             )
-            emit("tower_catalog", min(start + 512, len(ids)), len(ids), "items")
+            emit("tower_catalog", end, len(ids), "items")
     emit("tower_catalog", len(ids), len(ids), "items", status="complete", force=True)
     vectors.flush()
     return vectors
 
 
+def _gpu_topk_indices(
+    uv: torch.Tensor,
+    active_tensor: torch.Tensor,
+    active_idx: np.ndarray,
+    k: int = 50,
+) -> np.ndarray:
+    """Compute exact Top-K inner-product indices on device with deterministic ties."""
+    if len(active_idx) == 0 or uv.shape[0] == 0:
+        return np.empty((uv.shape[0], 0), dtype=np.int64)
+    k_eff = min(k, len(active_idx))
+    scores = torch.matmul(uv, active_tensor.T)
+    _, topk_pos = torch.topk(scores, k=k_eff, dim=1, largest=True, sorted=True)
+    return active_idx[topk_pos.cpu().numpy()]
+
+
 def internal_recall(
     model: TwoTower, encoder: SqlEncoder, run: Path, device: torch.device
 ) -> tuple[float, int]:
-    """Daily full-truth cohort Recall@50, using the globally computed active pool."""
+    """Daily full-truth cohort Recall@50, 100% vectorized via torch.matmul + torch.topk."""
     history = encoder.history_store
     vectors = item_vectors(model, encoder, run / "tmp/internal_vectors.npy", device)
+    item_tensor = torch.as_tensor(np.asarray(vectors), dtype=torch.float32, device=device)
+    cat_to_idx = {aid: idx for idx, aid in enumerate(history.catalog)}
     emit(
         "tower_internal_validation",
         0,
@@ -126,23 +143,39 @@ def internal_recall(
             path,
         )
         active = history.active(day)
-        for batch in rows(path, 32):
+        active_idx = np.array(
+            sorted(cat_to_idx[aid] for aid in active if aid in cat_to_idx),
+            dtype=np.int64,
+        )
+        active_tensor = (
+            item_tensor[torch.as_tensor(active_idx, dtype=torch.long, device=device)]
+            if len(active_idx) > 0
+            else torch.empty((0, 128), dtype=torch.float32, device=device)
+        )
+        for batch in rows(path, 512):
             queries = [(r["customer_id"], day) for r in batch]
             inputs = encoder.users(queries)
             has_history = inputs[2].sum(dim=1).numpy() > 0
             with torch.no_grad():
-                uv = model.user_vectors(*move(inputs, device)).cpu().numpy()
-            predictions = block_topk(history.catalog, vectors, uv, active, 50)
+                uv = model.user_vectors(*move(inputs, device))
+                topk_idx = _gpu_topk_indices(uv, active_tensor, active_idx, 50)
             truths = history.positives(queries)
-            for query, prediction, present in zip(
-                queries, predictions, has_history, strict=True
+            for query, pred_row, present in zip(
+                queries, topk_idx, has_history, strict=True
             ):
                 truth = truths[query]
                 total += (
-                    recall_at_k([i for i, _ in prediction], truth, 50) if present else 0
+                    recall_at_k(
+                        [history.catalog[j] for j in pred_row],
+                        truth,
+                        50,
+                    )
+                    if present
+                    else 0.0
                 )
                 count += 1
             emit("tower_internal_validation", count, None, "queries")
+    del item_tensor
     if not count:
         raise ValueError("No internal-validation cohort queries")
     emit(
@@ -158,9 +191,10 @@ def internal_recall(
 
 
 def cached_internal_recall(model, encoder, prepared, run, device, timing):
-    """Same complete daily population; only raw inputs and active positions cached."""
+    """Same complete daily population; GPU vectorized via torch.matmul + torch.topk."""
     with timing.span("internal_catalog_encoding"):
         vectors = item_vectors(model, encoder, run / "tmp/internal_vectors.npy", device)
+    item_tensor = torch.as_tensor(np.asarray(vectors), dtype=torch.float32, device=device)
     import pyarrow.parquet as pq
 
     internal_total = sum(
@@ -175,38 +209,41 @@ def cached_internal_recall(model, encoder, prepared, run, device, timing):
         status="started",
         force=True,
     )
-    index = BlockIndex(prepared.catalog, vectors)
     total = 0.0
     count = 0
+    eval_batch = min(4096, getattr(prepared, "max_batch", 512))
+    offsets = prepared.arrays["positive_offsets"]
+    positive = prepared.arrays["positive_items"]
     for meta in prepared.meta["daily"].values():
-        active = {prepared.catalog[j] for j in meta["active"]}
-        search = ActiveBlocks(index, active)
-        for records in rows(prepared.folder / meta["file"], 32):
+        active_idx = np.sort(np.asarray(meta["active"], dtype=np.int64))
+        active_tensor = (
+            item_tensor[torch.as_tensor(active_idx, dtype=torch.long, device=device)]
+            if len(active_idx) > 0
+            else torch.empty((0, 128), dtype=torch.float32, device=device)
+        )
+        for records in rows(prepared.folder / meta["file"], eval_batch):
             contexts = np.array([r["context_id"] for r in records], dtype=np.int64)
             inputs = prepared.users(contexts)
             present = inputs[2].sum(dim=1).numpy() > 0
             with torch.no_grad():
-                uv = (
-                    model.user_vectors(*encoder.bank.transfer("users", inputs))
-                    .cpu()
-                    .numpy()
-                )
-            with timing.span("internal_retrieval"):
-                predictions = search.search(uv, 50)
-            offsets = prepared.arrays["positive_offsets"]
-            positive = prepared.arrays["positive_items"]
-            for context, prediction, has in zip(
-                contexts, predictions, present, strict=True
+                uv = model.user_vectors(*encoder.bank.transfer("users", inputs))
+                with timing.span("internal_retrieval"):
+                    topk_idx = _gpu_topk_indices(uv, active_tensor, active_idx, 50)
+            for context, pred_row, has in zip(
+                contexts, topk_idx, present, strict=True
             ):
                 truth = {
                     prepared.catalog[j]
                     for j in positive[offsets[context] : offsets[context + 1]]
                 }
                 total += (
-                    recall_at_k([i for i, _ in prediction], truth, 50) if has else 0
+                    recall_at_k([prepared.catalog[j] for j in pred_row], truth, 50)
+                    if has
+                    else 0.0
                 )
                 count += 1
             emit("tower_internal_validation", count, internal_total, "queries")
+    del item_tensor
     if not count:
         raise ValueError("No internal-validation queries")
     emit(
@@ -231,13 +268,14 @@ def fit(run: Path, profile: dict, options: dict) -> None:
     (run / "models").mkdir(parents=True, exist_ok=True)
     device = device_for(profile)
     torch.manual_seed(42)
-    torch.set_num_threads(2)
-    torch.set_num_interop_threads(1)
+    config = profile["compute"]
+    torch.set_num_threads(max(2, int(config.get("threads", 12))))
+    torch.set_num_interop_threads(max(1, int(config.get("interop_threads", 2))))
     history = History(run)
     content = MappedContent(run)
     performance = profile.get("performance", {})
     optimized = performance.get("backend") == "optimized"
-    config = profile["compute"]
+    max_batch = max(512, int(config["tt_batch_size"]), 8192)
     if optimized:
         meta = read_json(run / "prepared/tower/manifest.json")
         encoder = SqlEncoder(history, content, meta["maps"])
@@ -247,6 +285,7 @@ def fit(run: Path, profile: dict, options: dict) -> None:
                 **cache_identity(run, encoder.maps, meta[("identity")][("target")]),
                 ("include_internal"): True,
             },
+            max_batch=max_batch,
         )
     else:
         encoder = SqlEncoder(history, content)
@@ -254,7 +293,12 @@ def fit(run: Path, profile: dict, options: dict) -> None:
     timing = Measurements(device)
     encoder.measurements = timing
     bank = (
-        ItemBank(encoder, device, placement=performance.get("item_placement", "auto"))
+        ItemBank(
+            encoder,
+            device,
+            placement=performance.get("item_placement", "auto"),
+            max_batch=max_batch,
+        )
         if optimized
         else None
     )
@@ -488,12 +532,21 @@ def fit(run: Path, profile: dict, options: dict) -> None:
                     )
                     device_mask = mask[valid].to(device)
                     device_valid = valid.to(device)
-                with timing.span("user_forward", gpu=True):
-                    users = model.user_vectors(*moved)[device_valid]
-                with timing.span("item_forward", gpu=True):
-                    items = model.item_vectors(*item_inputs)
+                use_amp = device.type == "cuda"
+                amp_dtype = (
+                    torch.bfloat16
+                    if (use_amp and torch.cuda.is_bf16_supported())
+                    else torch.float16
+                )
+                with torch.amp.autocast(
+                    device_type="cuda", dtype=amp_dtype, enabled=use_amp
+                ):
+                    with timing.span("user_forward", gpu=True):
+                        users = model.user_vectors(*moved)[device_valid]
+                    with timing.span("item_forward", gpu=True):
+                        items = model.item_vectors(*item_inputs)
                 with timing.span("loss", gpu=True):
-                    loss = logq_loss(users, items, q, device_mask)
+                    loss = logq_loss(users.float(), items.float(), q, device_mask)
                 optimizer.zero_grad()
                 with timing.span("backward", gpu=True):
                     loss.backward()
@@ -645,7 +698,9 @@ def fit(run: Path, profile: dict, options: dict) -> None:
                 ("static_inputs"): bank.report
                 if bank
                 else {("placement"): ("reference_host")},
-                ("precision"): ("float32_no_amp"),
+                ("precision"): ("amp_bf16_fp32_loss")
+                if device.type == "cuda"
+                else ("float32_no_amp"),
                 ("peak_cuda_allocated"): torch.cuda.max_memory_allocated()
                 if device.type == ("cuda")
                 else 0,
@@ -661,3 +716,7 @@ def fit(run: Path, profile: dict, options: dict) -> None:
     finally:
         write_json(run / "tower_performance.json", timing.summary())
         history.close()
+        del model, optimizer, scheduler, bank, encoder
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()

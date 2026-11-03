@@ -65,7 +65,17 @@ def wals_batch(snapshot, users: list[str], wals: WALS) -> dict:
         for user in users
     ]
     factors = (
-        fold_users_batch(wals.index.vectors, observed, gram=wals.gram)
+        np.concatenate(
+            [
+                fold_users_batch(
+                    wals.index.vectors, observed[start : start + 512], gram=wals.gram
+                )
+                for start in range(0, len(observed), 512)
+            ],
+            axis=0,
+        )
+        if snapshot.optimized and observed
+        else np.zeros((0, wals.index.vectors.shape[1]), dtype=np.float32)
         if snapshot.optimized
         else np.stack(
             [fold_user(wals.index.vectors, row, gram=wals.gram) for row in observed]

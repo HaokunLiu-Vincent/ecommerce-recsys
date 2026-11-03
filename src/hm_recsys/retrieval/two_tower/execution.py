@@ -151,9 +151,15 @@ class ItemBank:
     """Frozen raw inputs, separate from model state and live trainable projections."""
 
     def __init__(
-        self, encoder, device: torch.device, *, placement: str = "auto"
+        self,
+        encoder,
+        device: torch.device,
+        *,
+        placement: str = "auto",
+        max_batch: int = 8192,
     ) -> None:
         self.device = device
+        self.max_batch = max_batch
         self.ids = encoder.sample.catalog
         self.position = {i: j for j, i in enumerate(self.ids)}
         content = encoder.content
@@ -203,9 +209,10 @@ class ItemBank:
         if name in self.inflight:
             self.inflight[name].synchronize()
         buffers = self.buffers.get(name)
-        if buffers is None:
+        if buffers is None or any(len(b) < len(v) for b, v in zip(buffers, values, strict=True)):
+            cap = max(self.max_batch, max((len(v) for v in values), default=512))
             buffers = tuple(
-                torch.empty((512, *v.shape[1:]), dtype=v.dtype, pin_memory=True)
+                torch.empty((cap, *v.shape[1:]), dtype=v.dtype, pin_memory=True)
                 for v in values
             )
             self.buffers[name] = buffers
@@ -214,7 +221,7 @@ class ItemBank:
                 for group in self.buffers.values()
                 for v in group
             )
-        if any(len(v) > 512 for v in values):
+        if any(len(v) > self.max_batch for v in values):
             raise ValueError("Input transfer exceeds batch budget")
         output = []
         for buffer, value in zip(buffers, values, strict=True):
@@ -229,7 +236,7 @@ class ItemBank:
         return tuple(output)
 
     def items(self, positions: np.ndarray) -> tuple:
-        if positions.ndim != 1 or len(positions) > 512:
+        if positions.ndim != 1 or len(positions) > self.max_batch:
             raise ValueError("Static item gather exceeds the batch contract")
         if self.resident is not None:
             indices = torch.from_numpy(positions.astype(np.int64, copy=False)).to(

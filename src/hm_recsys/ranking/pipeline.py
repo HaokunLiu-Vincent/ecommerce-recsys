@@ -193,7 +193,7 @@ def train(run: Path, profile: dict) -> None:
         reg_alpha=1.0,
         reg_lambda=5.0,
         random_state=42,
-        n_jobs=2,
+        n_jobs=12,
         deterministic=True,
         force_col_wise=True,
         verbosity=-1,

@@ -416,8 +416,11 @@ def prepare(
 class Prepared:
     """Read only bounded gathers; no SQL or per-row Tensor construction per batch."""
 
-    def __init__(self, folder: Path, expected: dict | None = None) -> None:
+    def __init__(
+        self, folder: Path, expected: dict | None = None, *, max_batch: int = 512
+    ) -> None:
         self.folder = folder
+        self.max_batch = max_batch
         self.meta = verify(folder, expected)
         self.arrays = {
             p.stem: np.load(p, mmap_mode="r", allow_pickle=False)
@@ -429,7 +432,7 @@ class Prepared:
         self.probabilities = self.meta["probabilities"]
 
     def users(self, contexts: np.ndarray) -> tuple:
-        if contexts.ndim != 1 or len(contexts) > 512:
+        if contexts.ndim != 1 or len(contexts) > self.max_batch:
             raise ValueError("Prepared user gather exceeds the batch contract")
         return tuple(
             torch.from_numpy(np.array(self.arrays[n][contexts], copy=True))
@@ -438,7 +441,7 @@ class Prepared:
 
     def mask(self, contexts: np.ndarray, candidates: np.ndarray) -> torch.Tensor:
         """Vectorized membership over ragged full positives, bounded by this batch."""
-        if len(contexts) > 512 or len(candidates) > 512:
+        if len(contexts) > self.max_batch or len(candidates) > self.max_batch:
             raise ValueError("Prepared positive mask exceeds the batch contract")
         offsets = self.arrays["positive_offsets"]
         values = self.arrays["positive_items"]
@@ -456,7 +459,7 @@ class Prepared:
         return torch.from_numpy(mask)
 
     def batches(self, offset: int, size: int):
-        if not 1 <= size <= 512 or not 0 <= offset <= self.count:
+        if not 1 <= size <= self.max_batch or not 0 <= offset <= self.count:
             raise ValueError("Invalid prepared batch size or consumed offset")
         for start in range(offset, self.count, size):
             contexts = np.array(

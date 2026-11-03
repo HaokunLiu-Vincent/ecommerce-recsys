@@ -59,8 +59,8 @@ def resolved_profile(
         raise ValueError("Only smoke and full are active execution profiles")
     profile = apply(load_profile(project, name), project, performance)
     if device is not None:
-        if device not in ("cpu", "cuda") or (name == "smoke" and device != "cpu"):
-            raise ValueError("Smoke requires CPU; full requires explicit cpu/cuda")
+        if device not in ("cpu", "cuda"):
+            raise ValueError("Device must be explicitly cpu or cuda")
         profile["device"] = device
     return profile
 

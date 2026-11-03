@@ -15,7 +15,7 @@
     "hard_fraction": 0.5
   },
   "checkpoint_every_steps": 10,
-  "feature_query_batch": 512,
+  "feature_query_batch": 4096,
   "persistence": "verified_stage_delta",
   "device": "cuda",
   "profile": "full",
@@ -27,7 +27,7 @@
     "Validation"
   ],
   "compute": {
-    "threads": 8,
+    "threads": 12,
     "loader_workers": 4,
     "interop_threads": 2,
     "max_users": null,

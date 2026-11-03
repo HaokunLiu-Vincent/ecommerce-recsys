@@ -132,6 +132,11 @@ class Partition:
             if self.disk and labels
             else None
         )
+        if self.con is not None:
+            self.con.execute(
+                "CREATE TEMP TABLE partition_labels AS SELECT customer_id,article_id FROM read_parquet(?)",
+                [str(self.run / "labels" / f"{self.name}.parquet")],
+            )
         self.labels = (
             read_json(run / "labels" / f"{name}.json")
             if labels and (not self.disk)
@@ -150,14 +155,8 @@ class Partition:
 
     def truth(self, users: list[str]) -> dict[str, set[str]]:
         """Return full catalog truth for a bounded query batch."""
-        if len(users) > 512:
-            raise ValueError("Label batch exceeds 512 queries")
-        if len(users) > 32:
-            return {
-                u: truth
-                for start in range(0, len(users), 32)
-                for u, truth in self.truth(users[start : start + 32]).items()
-            }
+        if len(users) > 8192:
+            raise ValueError("Label batch exceeds 8192 queries")
         if self.labels is not None:
             return {u: set(self.labels[u]) for u in users}
         if self.con is None:
@@ -165,11 +164,7 @@ class Partition:
         self.con.register("requested", pa.table({"customer_id": users}))
         result = {u: set() for u in users}
         for user, item in self.con.execute(
-            (
-                "SELECT l.customer_id,l.article_id FROM read_parquet(?) l JOIN "
-                "requested USING(customer_id)"
-            ),
-            [str(self.run / "labels" / f"{self.name}.parquet")],
+            "SELECT l.customer_id,l.article_id FROM partition_labels l JOIN requested USING(customer_id)"
         ).fetchall():
             result[user].add(item)
         if any(not truth for truth in result.values()):

@@ -8,6 +8,7 @@ or image FAISS index as the learned index. Reload uses the same tensor schema.
 """
 
 from datetime import date
+import gc
 from pathlib import Path
 
 import numpy as np
@@ -40,7 +41,8 @@ def encode(
     if reloaded is not None:
         reload = reloaded
     device = device_for(profile)
-    torch.set_num_threads(2)
+    threads = int(profile.get("compute", {}).get("threads", 12))
+    torch.set_num_threads(max(2, threads))
     history = History(run)
     state = read_json(run / "models/twotower.json")
     encoder = SqlEncoder(history, MappedContent(run), state["maps"])
@@ -93,13 +95,18 @@ def encode(
                     ("roster_sha256"): digest(run / ("queries") / f"{part_name}.json"),
                 }
                 optimized = profile.get("performance", {}).get("backend") == "optimized"
+                batch_size = (
+                    min(8192, max(512, int(profile.get("feature_query_batch", 4096))))
+                    if optimized
+                    else 32
+                )
                 prepared_queries = None
                 if optimized:
                     from hm_recsys.retrieval.two_tower.query_inputs import QueryInputs
 
-                    prepared_queries = QueryInputs(encoder, part)
+                    prepared_queries = QueryInputs(encoder, part, max_batch=batch_size)
                 part_offset = 0
-                for batch in part.batches(512 if optimized else 32):
+                for batch in part.batches(batch_size):
                     queries = [
                         (u, date.fromisoformat(part.meta["start"])) for u in batch
                     ]
@@ -150,3 +157,7 @@ def encode(
         write_json(folder / f"{name}.json", state)
     finally:
         history.close()
+        del model, encoder
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
