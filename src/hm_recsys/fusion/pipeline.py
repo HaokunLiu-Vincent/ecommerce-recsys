@@ -68,6 +68,11 @@ def fuse(
                 "SELECT article_id FROM snapshot.active"
             ).fetchall()
         }
+        for channel in CHANNELS:
+            con.execute(
+                f"CREATE TEMP TABLE ch_{channel} AS SELECT * FROM read_parquet(?)",
+                [str(source / f"{channel}.parquet")],
+            )
         try:
             with pq.ParquetWriter(path, CANDIDATE_SCHEMA, compression="zstd") as writer:
                 for batch in reader.batches(profile["feature_query_batch"]):
@@ -80,13 +85,12 @@ def fuse(
                         records = (
                             con.execute(
                                 (
-                                    """SELECT c.* FROM read_parquet(?) c JOIN
+                                    f"""SELECT c.* FROM ch_{channel} c JOIN
                                     fusion_users USING(customer_id)
                                     WHERE c.customer_id>=? AND c.customer_id<=?
                                 ORDER BY customer_id,source_rank"""
                                 ),
                                 [
-                                    str(source / f"{channel}.parquet"),
                                     min(batch),
                                     max(batch),
                                 ],

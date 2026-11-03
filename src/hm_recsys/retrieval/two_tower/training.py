@@ -494,16 +494,16 @@ def fit(run: Path, profile: dict, options: dict) -> None:
                     items = model.item_vectors(*item_inputs)
                 with timing.span("loss", gpu=True):
                     loss = logq_loss(users, items, q, device_mask)
-                with timing.span("finite_check_and_scalar"):
-                    scalar = float(loss.detach().cpu())
-                    if not np.isfinite(scalar):
-                        raise ValueError("Nonfinite tower loss")
                 optimizer.zero_grad()
                 with timing.span("backward", gpu=True):
                     loss.backward()
                 with timing.span("optimizer", gpu=True):
                     optimizer.step()
                     scheduler.step()
+                with timing.span("finite_check_and_scalar"):
+                    scalar = float(loss.detach().cpu())
+                    if not np.isfinite(scalar):
+                        raise ValueError("Nonfinite tower loss")
                 step += 1
                 processed += count
                 if progress is not None:

@@ -84,47 +84,46 @@ def train(run: Path, profile: dict) -> None:
     total = positive = dropped = 0
     fold_counts = {}
     audit = (run / "ranker_groups.jsonl").open("x", encoding="utf-8")
-    for fold in profile["folds"]:
-        if fold == "Validation":
-            continue
-        partition = Partition(run, fold)
-        fold_counts[fold] = 0
-        for shard in feature_manifest(run, fold)["shards"]:
-            table = read_shard(run, shard)
-            truth = partition.truth([g["user"] for g in shard["groups"]])
-            full = matrix(table)
-            indices: list[int] = []
-            labels: list[int] = []
-            offset = 0
-            for group in shard["groups"]:
-                u, n = (group["user"], group["rows"])
-                ids = table["article_id"].slice(offset, n).to_pylist()
-                selected = select_training_rows(
-                    ids,
-                    set(truth[u]),
-                    full[offset : offset + n, FEATURES.index("rrf_fused_score")],
-                    query=f"{fold}:{u}",
-                )
-                if selected:
-                    group_sizes.append(len(selected))
-                    fold_counts[fold] += 1
-                    audit.write(
-                        json.dumps({"fold": fold, "user": u, "rows": len(selected)})
-                        + "\n"
+    with raw_x.open("ab") as handle_x, raw_y.open("ab") as handle_y:
+        for fold in profile["folds"]:
+            if fold == "Validation":
+                continue
+            partition = Partition(run, fold)
+            fold_counts[fold] = 0
+            for shard in feature_manifest(run, fold)["shards"]:
+                table = read_shard(run, shard)
+                truth = partition.truth([g["user"] for g in shard["groups"]])
+                full = matrix(table)
+                indices: list[int] = []
+                labels: list[int] = []
+                offset = 0
+                for group in shard["groups"]:
+                    u, n = (group["user"], group["rows"])
+                    ids = table["article_id"].slice(offset, n).to_pylist()
+                    selected = select_training_rows(
+                        ids,
+                        set(truth[u]),
+                        full[offset : offset + n, FEATURES.index("rrf_fused_score")],
+                        query=f"{fold}:{u}",
                     )
-                    indices.extend(offset + j for j in selected)
-                    labels.extend(int(ids[j] in truth[u]) for j in selected)
-                else:
-                    dropped += 1
-                offset += n
-            if indices:
-                with raw_x.open("ab") as handle:
-                    np.asarray(full[indices], dtype=np.float32).tofile(handle)
-                with raw_y.open("ab") as handle:
-                    np.asarray(labels, dtype=np.int32).tofile(handle)
-                total += len(indices)
-                positive += sum(labels)
-        partition.close()
+                    if selected:
+                        group_sizes.append(len(selected))
+                        fold_counts[fold] += 1
+                        audit.write(
+                            json.dumps({"fold": fold, "user": u, "rows": len(selected)})
+                            + "\n"
+                        )
+                        indices.extend(offset + j for j in selected)
+                        labels.extend(int(ids[j] in truth[u]) for j in selected)
+                    else:
+                        dropped += 1
+                    offset += n
+                if indices:
+                    np.asarray(full[indices], dtype=np.float32).tofile(handle_x)
+                    np.asarray(labels, dtype=np.int32).tofile(handle_y)
+                    total += len(indices)
+                    positive += sum(labels)
+            partition.close()
     audit.close()
     timings["negative_sampling_seconds"] = perf_counter() - stage_start
     dataset_start = perf_counter()

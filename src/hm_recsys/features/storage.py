@@ -28,7 +28,7 @@ class FeatureShards:
 
     def append(self, table, groups, provenance) -> dict | None:
         """Append one whole-query batch; publish its digest only after file close."""
-        if len(groups) > 32 or sum(g["rows"] for g in groups) != len(table):
+        if sum(g["rows"] for g in groups) != len(table):
             raise ValueError("Feature writer query-group batch contract mismatch")
         name = f"part-{self.index:05d}.parquet"
         if self.features is None:

@@ -1,56 +1,25 @@
 """Immutable smoke configuration, date contracts, and artifact helpers."""
 
-# Use bounded cryptographic fingerprints for immutable artifact identities.
 import hashlib
-
-# Use portable manifests with explicit completion and compatibility metadata.
 import json
-
-# Use explicit typed purchase-line and candidate records.
 from dataclasses import dataclass
-
-# Use calendar-day cutoffs and non-overlapping target intervals.
 from datetime import date, timedelta
-
-# Use portable paths resolved beneath project-owned roots.
 from pathlib import Path
 
-# Read repository root resolved from package location, independent of cwd from
-# parents at the explicit row/key coordinates.
 ROOT = Path(__file__).resolve().parents[3]
-# Resolve start of the WALS fit history, 2020-02-01 for immutable smoke
-# configuration, date contracts, and artifact helpers before the downstream consumer
-# uses it.
+
+# Fixed historical split and model boundary dates.
 START = date(2020, 2, 1)
-# Resolve first legal Two-Tower target/history date, 2020-05-19 for immutable smoke
-# configuration, date contracts, and artifact helpers before the downstream consumer
-# uses it.
 TT_START = date(2020, 5, 19)
-# Resolve exclusive Two-Tower gradient-target boundary, 2020-08-05 for immutable
-# smoke configuration, date contracts, and artifact helpers before the downstream
-# consumer uses it.
 TT_END = date(2020, 8, 5)
-# Resolve exclusive frozen-base boundary, 2020-08-12 for immutable smoke
-# configuration, date contracts, and artifact helpers before the downstream consumer
-# uses it.
 BASE_END = date(2020, 8, 12)
-# Resolve exclusive extraction boundary that excludes final Test labels for immutable
-# smoke configuration, date contracts, and artifact helpers before the downstream
-# consumer uses it.
 EXTRACT_END = date(2020, 9, 16)
-# Resolve start of the fixed WALS item-observation vocabulary window for immutable
-# smoke configuration, date contracts, and artifact helpers before the downstream
-# consumer uses it.
 VOCAB_START = date(2020, 6, 16)
-# Initialize six logical recall-channel identifiers in canonical order with the
-# explicit structured fields/empty state used by this operation.
+
+# Canonical 6 recall channels and their evaluation quotas.
 CHANNELS = ("trend", "repurchase", "sibling", "itemcf", "wals", "twotower")
-# Resolve independent six-channel candidate budgets for immutable smoke
-# configuration, date contracts, and artifact helpers before the downstream consumer
-# uses it.
 QUOTAS = dict(zip(CHANNELS, (60, 30, 30, 50, 50, 50), strict=True))
-# Initialize maximum permitted local smoke counts and compute budgets with the
-# explicit structured fields/empty state used by this operation.
+
 HARD_CAPS = {
     "max_users": 500,
     "max_catalog": 5000,
@@ -72,8 +41,7 @@ HARD_CAPS = {
     "monitor_seconds": 0.2,
     "max_itemcf_pairs": 10000000,
 }
-# Initialize smoke settings that may not be silently changed with the explicit
-# structured fields/empty state used by this operation.
+
 FIXED_SETTINGS = {
     "profile": "smoke",
     "device": "cpu",
@@ -91,51 +59,26 @@ FIXED_SETTINGS = {
 }
 
 
-# Write a readable local artifact, rejecting nonstandard JSON numbers.
 def write_json(path: Path, value: object) -> None:
     """Write a readable local artifact, rejecting nonstandard JSON numbers."""
-    # Create only the required owned directory; immutable inputs and other runs
-    # remain untouched.
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Serialize the explicitly selected metadata/records to this operation's output;
-    # raw source inputs are not overwritten.
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
 
 
-# Read an object manifest; reject a non-object top level.
 def read_json(path: Path) -> dict:
     """Read an object manifest; reject a non-object top level."""
-    # For current typed value being validated or accumulated: read the stored
-    # metadata text before checking or using its explicit contract fields.
     value = json.loads(path.read_text())
-    # Check this validity/resource condition before proceeding; its failure must stop
-    # the operation explicitly.
     if not isinstance(value, dict):
-        # Raise the explicit ValueError for this violated contract; the caller must
-        # not publish incomplete success.
         raise ValueError(f"Expected an object manifest: {path.name}")
-    # Return current typed value being validated or accumulated to the caller without
-    # changing its row/key associations.
     return value
 
 
-# Hash a file incrementally without retaining its contents.
 def digest(path: Path) -> str:
     """Hash a file incrementally without retaining its contents."""
-    # Resolve hasher for hash a file incrementally without retaining its contents
-    # before the downstream consumer uses it.
     hasher = hashlib.sha256()
-    # Keep the file handle scoped to this operation so it closes before later
-    # validation/publication.
     with path.open("rb") as handle:
-        # Process each chunk from the declared read(1024 * 1024), b'') sequence for
-        # hash a file incrementally without retaining its contents.
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            # Retain the current records in hasher, preserving explicit row/key
-            # associations and encounter order.
             hasher.update(chunk)
-    # Return the computed result for hash a file incrementally without retaining its
-    # contents with the stated dtype/order and empty-input behavior.
     return hasher.hexdigest()
 
 

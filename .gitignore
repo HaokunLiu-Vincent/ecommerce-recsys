@@ -1,3 +1,4 @@
+# Local environments, Python bytecode, and development tool caches.
 .venv/
 __pycache__/
 *.py[cod]
@@ -6,8 +7,12 @@ __pycache__/
 .pyright/
 .mypy_cache/
 .ipynb_checkpoints/
+
+# Operating system metadata and temporary Office files.
 .DS_Store
 ~$*
+
+# Local configuration and secrets; keep the example environment file tracked.
 .env
 .env.*
 !.env.example
@@ -15,11 +20,17 @@ kaggle.json
 .aws/
 *.pem
 *.key
+
+# Logs, temporary files, and local output directories.
 *.log
 *.tmp
 outputs/
 logs/
+
+# Keep all source data and generated run artifacts under data/ untracked.
 /data/**
+
+# Embeddings, columnar tables, model weights, and vector indexes.
 *.npy
 *.npz
 *.parquet
@@ -30,7 +41,7 @@ logs/
 *.safetensors
 *.index
 
-# Runtime inputs and outputs stay local even when accidentally created outside data/.
+# Exclude data exports and serialized artifacts created outside data/ as well.
 *.csv
 *.tsv
 *.jsonl
@@ -54,6 +65,8 @@ logs/
 *.tar
 *.tar.gz
 *.tgz
+
+# Catch misplaced runtime directories and model exports outside data/.
 models/
 checkpoints/
 runs/
@@ -68,7 +81,7 @@ model.txt
 mlruns/
 wandb/
 
-# Source images and exported notebook figures can contain private catalog data.
+# Keep catalog images and exported notebook figures local.
 *.png
 *.jpg
 *.jpeg
@@ -77,7 +90,7 @@ wandb/
 *.bmp
 *.tiff
 
-# Local authentication material is never part of a reproducible code checkout.
+# Exclude authentication files, private keys, and local credential stores.
 .netrc
 .ssh/
 .kaggle/
@@ -96,6 +109,8 @@ id_ed25519*
 .config/git/
 tokens*.json
 token*.json
+
+# Local caches, coverage reports, and Python build artifacts.
 .cache/
 .uv/
 .coverage
@@ -104,11 +119,13 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+
+# Additional token and OAuth credential file formats.
 token*.yaml
 token*.yml
 oauth*.json
 oauth*.yaml
 oauth*.yml
 
-# Historical code and notebooks are local references, never production inputs.
+# Preserve historical references locally, outside the active codebase.
 /docs/achive/

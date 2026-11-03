@@ -40,8 +40,8 @@ def generate(
     """
     started = perf_counter()
     batch_size = profile["feature_query_batch"]
-    if not isinstance(batch_size, int) or not 0 < batch_size <= 32:
-        raise ValueError("Feature query batches must contain 1–32 queries")
+    if not isinstance(batch_size, int) or batch_size <= 0:
+        raise ValueError("Feature query batch size must be a positive integer")
     with ExitStack() as resources:
         fusion_root = run / ("fusion_reload" if reloaded else "fusion") / partition
         candidate_reader = CandidateReader(run, partition, reloaded=reloaded)
