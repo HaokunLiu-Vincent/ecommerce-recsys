@@ -82,22 +82,22 @@ def fuse(
                     }
                     fallback = {user: set() for user in batch}
                     for channel in CHANNELS:
-                        records = (
-                            con.execute(
-                                (
-                                    f"""SELECT c.* FROM ch_{channel} c JOIN
-                                    fusion_users USING(customer_id)
-                                    WHERE c.customer_id>=? AND c.customer_id<=?
-                                ORDER BY customer_id,source_rank"""
-                                ),
-                                [
-                                    min(batch),
-                                    max(batch),
-                                ],
-                            )
-                            .to_arrow_table()
-                            .to_pylist()
+                        rel = con.execute(
+                            (
+                                f"""SELECT c.* FROM ch_{channel} c JOIN
+                                fusion_users USING(customer_id)
+                                WHERE c.customer_id>=? AND c.customer_id<=?
+                            ORDER BY customer_id,source_rank"""
+                            ),
+                            [
+                                min(batch),
+                                max(batch),
+                            ],
                         )
+                        to_arrow = getattr(rel, "to_arrow_table", None) or getattr(
+                            rel, "fetch_arrow_table"
+                        )
+                        records = to_arrow().to_pylist()
                         for record in records:
                             user = record["customer_id"]
                             values = outputs[user][channel]

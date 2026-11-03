@@ -79,18 +79,18 @@ class CandidateReader:
         if not users:
             return result
         self.con.register("candidate_users", pa.table({"customer_id": users}))
-        rows = (
-            self.con.execute(
-                (
-                    """SELECT c.* FROM fused_candidates c JOIN candidate_users
-                    USING(customer_id) WHERE c.customer_id>=? AND c.customer_id<=?
-                ORDER BY customer_id,article_id"""
-                ),
-                [min(users), max(users)],
-            )
-            .to_arrow_table()
-            .to_pylist()
+        rel = self.con.execute(
+            (
+                """SELECT c.* FROM fused_candidates c JOIN candidate_users
+                USING(customer_id) WHERE c.customer_id>=? AND c.customer_id<=?
+            ORDER BY customer_id,article_id"""
+            ),
+            [min(users), max(users)],
         )
+        to_arrow = getattr(rel, "to_arrow_table", None) or getattr(
+            rel, "fetch_arrow_table"
+        )
+        rows = to_arrow().to_pylist()
         seen = set()
         for row in rows:
             user, item = row["customer_id"], row["article_id"]

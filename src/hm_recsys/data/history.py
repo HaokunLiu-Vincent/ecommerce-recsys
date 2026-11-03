@@ -305,6 +305,12 @@ def canonical(run: Path, source: Path, profile: dict) -> None:
         con.close()
 
 
+def _to_arrow_table(rel) -> pa.Table:
+    """Convert a DuckDB relation/connection result to PyArrow across DuckDB versions."""
+    fn = getattr(rel, "to_arrow_table", None) or getattr(rel, "fetch_arrow_table")
+    return fn()
+
+
 class History:
     """Query bounded histories and metadata from immutable canonical storage."""
 
@@ -312,11 +318,9 @@ class History:
         self.run = run
         self.con = connect(run / "canonical/history.duckdb", run)
         transaction_view(self.con, run)
-        articles = (
+        articles = _to_arrow_table(
             self.con.execute("SELECT * FROM articles ORDER BY article_id")
-            .to_arrow_table()
-            .to_pylist()
-        )
+        ).to_pylist()
         self.articles = {row["article_id"]: row for row in articles}
         self.candidate_catalog = [
             r[0]
@@ -335,13 +339,11 @@ class History:
 
     def customers(self, users: list[str]) -> dict:
         self.con.register("requested_users", pa.table({"customer_id": users}))
-        rows = (
+        rows = _to_arrow_table(
             self.con.execute(
                 "SELECT c.* FROM customers c JOIN requested_users USING(customer_id)"
             )
-            .to_arrow_table()
-            .to_pylist()
-        )
+        ).to_pylist()
         return {
             r["customer_id"]: {**r, "age": float(r["age"]) if r.get("age") else None}
             for r in rows
