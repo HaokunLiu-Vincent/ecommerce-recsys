@@ -388,8 +388,12 @@ def prepare(
         ("daily"): daily,
         ("history_sql_passes"): 1,
         ("transaction_rows_exported"): raw_count,
-        ("history_query_rows_scanned"): query_profile[("cumulative_rows_scanned")],
-        ("history_query_seconds"): query_profile[("latency")],
+        ("history_query_rows_scanned"): query_profile.get(
+            "cumulative_rows_scanned", query_profile.get("rows_returned", raw_count)
+        ),
+        ("history_query_seconds"): query_profile.get(
+            "latency", query_profile.get("cpu_time", 0.0)
+        ),
         ("files"): {
             p.name: {("bytes"): p.stat().st_size, ("sha256"): digest(p)}
             for p in sorted(folder.iterdir())

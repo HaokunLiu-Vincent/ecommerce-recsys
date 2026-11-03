@@ -354,16 +354,16 @@ def train(run: Path, profile: dict) -> None:
 
 
 class ExpectedRows:
-    """Consume up to 512 expected query records across 32-row Arrow batch boundaries."""
+    """Consume up to 8192 expected query records across Arrow batch boundaries."""
 
     def __init__(self, reference: pq.ParquetFile) -> None:
-        self.batches = iter(reference.iter_batches(batch_size=32))
+        self.batches = iter(reference.iter_batches(batch_size=512))
         self.pending = []
 
     def take(self, count: int) -> list[dict]:
         """Return bounded expected rows, including empty-candidate query records."""
-        if not 0 <= count <= 512:
-            raise ValueError("Expected prediction batch exceeds 512 queries")
+        if not 0 <= count <= 8192:
+            raise ValueError("Expected prediction batch exceeds 8192 queries")
         result = []
         while len(result) < count:
             if not self.pending:

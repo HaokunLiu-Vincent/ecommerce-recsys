@@ -271,8 +271,8 @@ def frozen_clusters(content: ContentBank, run: Path, centers: FloatArray) -> np.
         temporary, mode="w+", dtype=np.int32, shape=(len(content.ids),)
     )
     output[:] = -1
-    for start in range(0, len(content.ids), 32):
-        indices = np.arange(start, min(start + 32, len(content.ids)))
+    for start in range(0, len(content.ids), 4096):
+        indices = np.arange(start, min(start + 4096, len(content.ids)))
         valid = indices[content.masks["image"][indices]]
         if len(valid):
             distance = np.sum(
