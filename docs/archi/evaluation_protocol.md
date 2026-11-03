@@ -2,7 +2,7 @@
 
 **Status:** Proposed implementation contract; not executed or frozen as data artifacts.  
 **Updated:** 2026-11-02 · documentation revision v0.3.2  
-**Companion:** [proposal.md](../../proposal.md)  
+**Companion:** [proposal.md](../proposal.md)  
 **Primary metric:** Native end-to-end macro MAP@12.
 
 This protocol follows the newly supplied six-channel architecture, not the

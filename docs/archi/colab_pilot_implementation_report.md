@@ -1,5 +1,9 @@
 # Colab Pilot Implementation Report
 
+This report records the preceding pilot milestone. The user subsequently
+reported successful real Colab CUDA pilot. The current full adapter and its
+separate verification are described in [Full Implementation Report](colab_full_implementation_report.md).
+
 ## Contents
 
 - [Delivery and evidence](#delivery-and-evidence)

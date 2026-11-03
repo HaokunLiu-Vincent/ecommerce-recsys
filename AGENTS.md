@@ -1,6 +1,6 @@
 # AGENTS.md — H&M Recommendation System
 
-Version: 0.3.2 · Updated: 2026-11-02
+Version: 0.3.2 · Updated: 2026-11-03 · Single-source layout revision
 
 These instructions apply to the repository unless a more specific, applicable
 instruction explicitly overrides them. Use the uppercase filename `AGENTS.md`
@@ -60,7 +60,7 @@ impressions, orders, sizes, inventory, sessions, or return events.
 
 Before editing, inspect the actual repository and read the relevant portions of:
 
-1. `proposal.md`: current scope, channel algorithms, inputs, and defaults.
+1. `docs/proposal.md`: current scope, channel algorithms, inputs, and defaults.
 2. `docs/archi/evaluation_protocol.md`: exact temporal and metric contract.
 3. `docs/archi/implementation_decisions.md`: decisions, especially D06/D07/D14.
 4. `docs/archi/architecture.md`: data flow and module boundaries.
@@ -78,13 +78,15 @@ statement that embeddings were not yet generated does not supersede that user
 update. Do not claim integrity, coverage, dimensions, or provenance have been
 verified until their real artifacts are inspected.
 
-`docs/hm_mvp_full_reports_colab_v1.md`,
-`docs/achive/hm_mvp_full_reports_colab_v1.zip`, and
-`docs/achive/mvp_notebooks_colab/` are limited historical references. Preserve
-the literal `achive` spelling. Read only relevant sections; do not automatically
-unzip, run, import, or port the archived pipeline. Individually reused helpers
-must be reviewed and tested against current paths, dates, interfaces, sampling,
-and metric definitions; record provenance and adaptation.
+Historical experiment reports, old notebooks, release clients and superseded
+implementations belong only to the local, ignored `docs/achive/` after a
+recorded dependency/privacy audit. Preserve the literal `achive` spelling and
+original bytes. The archive is unmaintained, absent from public checkouts,
+excluded from tests/lint/type checking, and never imported or executed by active
+code. Use `docs/archi/refactor_migration_map.md` to locate moved references.
+Do not automatically unzip or restore archived code. A narrowly reused helper
+requires review against current dates, paths, interfaces and tests; it must not
+create a second active algorithm implementation.
 
 Do not resurrect the old 2020-07-28 cutoff, overlapping fifteen-anchor
 protocol, fixed C0, injected positives, NDCG@20 primary selection, or standalone
@@ -112,15 +114,29 @@ Never invent uninspected report/notebook content or rewrite archived results.
   acceptance/split/schema/lineage reports under `data/manifests/`; metrics under
   `data/metrics/`; local MLflow artifacts under `data/runs/`; scratch under
   `data/tmp/`. Create directories only when needed.
-- Preserve `docs/achive/` and both user-listed reports at the `docs/` root.
-  Add current design files under `docs/archi/`. Do not force a migration into
-  `docs/references/`, rename the archive, or overwrite historical notebooks.
-  Existing archive files are references, not a destination for new runtime data.
-- Keep reusable Python under `src/hm_recsys/`, SQL under `sql/`, configurations
-  under `configs/`, thin entry points under `scripts/`, tests under `tests/`,
-  and new exploratory notebooks under `notebooks/`.
-  `src/hm_recsys/embeddings/` loads/validates/adapts existing vectors; it is not
-  a default source-embedding extraction pipeline.
+- `docs/achive/` is a local-only, Git-ignored historical store. Audit imports,
+  call sites, privacy and dependencies before moving superseded files there;
+  preserve bytes/checksums and record the mapping. Never move runtime customer
+  data or source inputs into a tracked documentation tree. Add current design
+  documents under `docs/archi/`.
+- Keep one authoritative implementation under `src/hm_recsys/`, grouped into
+  `core/`, `data/`, `retrieval/`, `fusion/`, `features/`, `ranking/`,
+  `evaluation/`, and `runtime/`. `smoke` and `full` call the same production
+  algorithms. Do not restore parallel `pilot/`, `colab/`, root model modules,
+  legacy wrappers or profile-specific algorithm copies.
+- Keep thin entry points under `scripts/`, configurations under `configs/`,
+  and bounded tests under `tests/`. Existing source embeddings are consumed by
+  `features/content.py`; no default extraction pipeline is authorized.
+- **The only active Notebook is root `colab_training_val.ipynb`.** It contains
+  configuration, verified Git bootstrap, environment setup and explicit stage
+  calls. Six retrieval channels, fusion/RRF, features, LambdaMART, Validation
+  and reload have separate executable cells. A cell runs only its named stage;
+  missing prerequisites fail visibly rather than training unrelated stages.
+  Archive superseded notebooks only after verifying their replacement.
+- New run artifacts remain beneath `data/runs/<kind>/<run_id>/`, with
+  stage-scoped canonical data, candidate/features, models, indexes, reports,
+  scratch and verified manifests. The conventional derived directories above
+  remain valid existing paths; do not relocate or overwrite completed runs.
 - Resolve `<repository>/data/` independently of the process working directory.
   Mount external data there. Use `pathlib.Path`; quote spaces in shell paths.
   Never fall back to a personal path, `/content/data`, or another data tree.
@@ -318,6 +334,10 @@ https://google.github.io/styleguide/pyguide.html
 ### 6.1 General Principles
 
 - Write clean, readable, maintainable, production-oriented Python.
+- Begin every active Python module, script and test module with a specific
+  module docstring describing its role, important inputs/outputs, collaborators,
+  temporal/resource constraints and side effects where relevant. Do not use
+  identical boilerplate or require redundant comments on trivial statements.
 - Use English for all identifiers, comments, docstrings, and error messages.
 - Follow Google-style docstrings and PEP 257.
 - Use type hints for public functions, methods, and important internal
@@ -478,14 +498,22 @@ checks do not replace review of comment correctness or ML semantics.
 ## 8. Required verification
 
 Run appropriate focused tests during development and the repository-wide checks
-when the environment supports them:
+in the existing `uv` environment when available:
 
 ```bash
-ruff format --check .
-ruff check .
-pyright
-pytest -q
+uv run --locked ruff format --check .
+uv run --locked ruff check .
+uv run --locked pyright
+uv run --locked pytest -q
 ```
+
+Validate root `colab_training_val.ipynb` with `nbformat` and compile every code
+cell explicitly. Test actual stage/CLI contracts, independent stage execution,
+missing prerequisites, progress before worker exit, identity-checked reuse and
+restart behavior. Default Run All must not construct/read Test future labels
+or invoke Test scoring. `docs/achive/`, `data/` and environments are excluded
+from all active test/lint/type traversal. Exclusions do not untrack committed
+private files; inspect both the working tree and Git index/history.
 
 Use the project's environment runner if one already exists. A missing command
 or dependency is a reported verification limitation, not a passed check.
@@ -535,12 +563,25 @@ initialization where applicable. Record library versions, device, thread counts,
 config hashes, data fingerprints, and model/index/schema mappings. Do not promise
 bitwise determinism when the runtime cannot provide it.
 
-Runtime caches, checkpoints, metrics, and manifests remain under `data/`.
-MLflow must use explicitly configured local paths under `data/runs/` rather than
-silently creating a root-level `mlruns/`. DVC can use its normal metadata/cache
-mechanism; that does not authorize additional dataset roots. Never commit raw
-customer data, secrets, credentials, downloaded weights, or large artifacts to
-Git. Reference artifacts through DVC and immutable manifest identities.
+Runtime caches, checkpoints, metrics, manifests and benchmark outputs remain
+under `data/`. Training executes on local Colab storage; verified stage deltas
+and compatible complete-state checkpoints may persist to the explicitly
+configured Drive run root. A path/layout change requires a new run identity;
+never relabel an old pilot/full artifact or bypass identity checks to resume.
+
+Do not add DVC, MLflow, AWS, remote experiment services, HTTP services or other
+infrastructure as an automatic requirement of this pipeline. Those need a
+separate explicit scope change. Do not commit raw customer data, embeddings,
+checkpoints, tokens, populated notebook outputs or private archive files.
+`.gitignore` alone does not make previously tracked/history content safe.
+
+Final Test is separate from training and Validation. Define its split metadata
+during preparation, but do not construct/read its future labels or score it by
+default. The last executable Notebook cell requires Full mode,
+`RUN_FINAL_TEST=True`, separate `ALLOW_FINAL_TEST=True`, and an explicit frozen
+run signature verified against completed training, Validation/reload, code,
+inputs, config, feature schema and splits. Score once without refitting or
+Test-driven selection. A synthetic Test-gate fixture is not a real Test run.
 
 ## 10. Completion report and change discipline
 
@@ -578,15 +619,16 @@ Prioritize correctness, readability, reproducibility, and maintainability.
 
 #### Structure
 
-Organize notebooks in a logical sequence:
+Organize the single root Notebook in an explicit operational sequence:
 
-1. Title and Objective
-2. Environment and Configuration
-3. Data Loading and Validation
-4. Methodology / EDA
-5. Experiments
-6. Results and Interpretation
-7. Conclusions and Next Steps
+1. Objective, run controls and pinned Git identity.
+2. Environment, input acceptance and measured resource plan.
+3. Canonical preparation and exact Train/Validation/Test split definitions.
+4. One executable cell for each of the six retrieval channels.
+5. Separate union/RRF, shared features and one LambdaMART cells.
+6. Full-ground-truth Validation comparison and fresh-process reload.
+7. Measured reports, then a final executable Test cell disabled by default.
+8. Markdown recovery instructions and unrun/next-step qualifications.
 
 Use Markdown headings to create a navigable outline.
 
@@ -598,13 +640,14 @@ Use Markdown headings to create a navigable outline.
 - Keep cells focused on one logical operation.
 - Use meaningful variable names and type hints where useful.
 - Avoid excessively long code cells.
-- Avoid hardcoded absolute paths.
+- Centralize the explicitly approved Colab roots in configuration. Avoid
+  unrelated hardcoded personal paths or working-directory fallbacks.
 - Never hardcode credentials or secrets.
 - Avoid unnecessary package installation inside notebooks.
 - Move reusable models, data pipelines, metrics, and utilities into Python
   modules under `src/`.
-- Use notebooks primarily for exploration, experimentation, visualization, and
-  analysis.
+- Use the root Notebook as a transparent orchestration client; keep model,
+  retrieval, feature, sampling and metric math in the canonical source modules.
 
 #### Markdown Cells
 
@@ -720,7 +763,8 @@ Before delivering notebooks or Markdown files:
 - Preserve the existing document structure unless restructuring is requested.
 
 For this repository, apply these requirements together with Sections 3, 4, 8,
-and 9. Reusable notebook code belongs under `src/hm_recsys/`; resolve runtime
+and 9. Root `colab_training_val.ipynb` is the only active Notebook. Reusable code
+belongs under `src/hm_recsys/`; resolve runtime
 inputs and outputs through the fixed repository `data/` root. A documentation
 task does not authorize an expensive dataset or training run. If notebook
 execution, preview rendering, diagram validation, or required tools cannot be

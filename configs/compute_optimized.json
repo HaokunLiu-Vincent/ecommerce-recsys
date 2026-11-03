@@ -1,0 +1,8 @@
+{
+  "backend": "optimized",
+  "prefetch_batches": 2,
+  "item_placement": "auto",
+  "local_checkpoint_steps": 100,
+  "local_checkpoint_seconds": 60,
+  "remote_checkpoint_seconds": 300
+}

@@ -1,7 +1,7 @@
 # Implementation Decisions and Source Clarifications
 
 **Version:** v0.3.2 · Evaluation Protocol v2.0  
-**Updated:** 2026-11-02  
+**Updated:** 2026-11-03  
 **Status:** Current design decisions, not new experimental results.
 
 ## Contents
@@ -11,11 +11,12 @@
 - [3. Retrieval and content artifacts](#3-retrieval-and-content-artifacts)
 - [4. Ranking, features, and metrics](#4-ranking-features-and-metrics)
 - [5. Remaining implementation gates](#5-remaining-implementation-gates)
+- [6. Single-source execution layout](#6-single-source-execution-layout)
 
 ## 1. Sources and revision boundary
 
 The latest explicit user decisions and the approved new architecture govern
-[proposal.md](../../proposal.md) and all current architecture documents.
+[proposal.md](../proposal.md) and all current architecture documents.
 Preserve the six channels, `60/30/30/50/50/50` quotas, exact dates, base/dynamic
 update policies, single LambdaMART, and previously recorded algorithm choices.
 
@@ -150,3 +151,35 @@ can manufacture those missing observations.
 
 Record resolved choices, tests, data paths, and immutable identities in current
 configs/manifests. Do not edit archives to erase the design history.
+
+## 6. Single-source execution layout
+
+D30 (2026-11-03): `src/hm_recsys/` is the sole active implementation,
+organized into core, data, features, retrieval, fusion, ranking, evaluation and
+runtime layers. Smoke and full use the same SQL histories, model trainers,
+feature builder, sampler and evaluator; only explicit budgets differ. The
+former in-memory smoke model path is archived. The current optimized SQL backend
+was captured on a tiny synthetic input before refactoring for artifact comparison.
+
+D31: Functional Notebook stages are independently executable and require
+verified completed dependencies. Six recall stages share prepared cutoff
+statistics but never implicitly train another channel. RRF persists the full
+native union, source ranks/scores and deterministic provenance. The new stage
+graph has a new immutable identity; old runs cannot be renamed or resumed as
+new-layout runs.
+
+D32: Smoke's candidate eligibility cap does not truncate its model input
+vocabulary or discard legitimate selected training targets. Complete selected
+history metadata is represented separately from the capped candidate catalog.
+Global full-mode statistics, article scope, temporal windows and denominators
+are unchanged. Existing resource gates apply to both representations.
+
+D33: Final Test is an optional last stage, absent from all default runs. It
+requires full profile, two explicit approvals, the completed Validation/reload
+lock and matching model/schema hashes. Test labels are prepared only inside
+that authorized stage; no refitting or configuration selection is permitted.
+These are execution guards, not changes to the evaluation protocol.
+
+See the [migration map](refactor_migration_map.md) and
+[verification report](code_architecture_refactor_report.md) for file provenance
+and the distinction between synthetic verification and unexecuted cloud work.

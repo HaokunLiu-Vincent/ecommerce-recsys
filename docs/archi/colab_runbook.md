@@ -1,5 +1,14 @@
 # H&M Colab Runbook
 
+The current primary workflow is [GitHub checkout](github_colab_runbook.md):
+open the checked-in Notebook from GitHub, pin its actual Commit, and stage only
+validated Drive inputs. No source archive upload is required. Existing archive
+run identities and the archive setup examples below are historical compatibility
+instructions; they do not apply to new Git runs. Keep the original Commit and
+Git identity for new-run recovery. Model, resource and progress details below
+remain applicable unless explicitly identified as historical.
+
+
 ## Contents
 
 - [Scope](#scope)
@@ -13,8 +22,8 @@
 
 The thin Colab entry point supports the existing CPU smoke and an executable,
 explicitly opted-in pilot backend. See [Colab Pilot Runbook](colab_pilot_runbook.md)
-for pilot release/configuration/commands and current verification limits. Full,
-final Test, tuning and deployment remain disabled. No existing source embedding
+for pilot release/configuration/commands and current verification limits. Full now has an explicit execution path; see [Full Runbook](colab_full_runbook.md).
+Final Test, tuning and deployment remain disabled. No existing source embedding
 or completed smoke artifact is replaced.
 
 The six quotas remain 60/30/30/50/50/50. One LambdaMART uses four disjoint
@@ -168,10 +177,11 @@ resource-estimated LambdaMART fit. Pilot requires `--allow-pilot` and a Colab
 runtime; it never requires `--allow-full`. Its production budget is unchanged.
 The pilot runbook describes actual stages and separate CPU/CUDA selection.
 
-`plan --profile full` remains `blocked_implementation`: full-population/all-fold
-resource acceptance and cloud/CUDA evidence are outside this pilot milestone.
-Never remove the gate or relabel a sampled artifact as full. Final Test remains
-disabled independently of profile and opt-in.
+`plan --profile full` now describes the implemented full adapter. Full requires
+`--allow-full`, a new full run ID, a Colab runtime and independent resource
+acceptance. It executes all four training folds and complete Validation. Read
+[Full Runbook](colab_full_runbook.md) for null-limit semantics, bounded readers,
+resource estimates and recovery. Final Test remains disabled.
 
 ## Environment and verification limits
 

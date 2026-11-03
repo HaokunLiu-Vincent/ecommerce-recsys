@@ -20,8 +20,8 @@ fresh-process inference. That historical success does not establish this
 release's Linux environment, GPU execution or fresh-runtime Drive recovery.
 
 Pilot is a bounded expansion experiment: F1 and a sampled Validation roster,
-not a full Validation benchmark. Full, final Test, tuning and deployment remain
-disabled. The smoke entry point and four-fold smoke regression remain supported.
+not a full Validation benchmark. Full uses separate explicit authorization; see [Full Runbook](colab_full_runbook.md).
+Final Test, tuning and deployment remain disabled. The smoke entry point and four-fold smoke regression remain supported.
 
 ## Release and upload
 
@@ -220,4 +220,4 @@ still be expensive despite a small training cohort.
 No Colab GPU type, memory size, elapsed time or affordability is guaranteed.
 A resource rejection is a blocked run, not permission to shrink features or
 change algorithms. New-release Linux/CUDA, real pilot and actual fresh-runtime
-Drive recovery are **not run**. Full and final Test remain closed.
+Drive recovery are **not run**. Full uses the separate full runbook and opt-in; final Test remains closed.
