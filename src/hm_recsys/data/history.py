@@ -44,7 +44,6 @@ def connect(path: Path, run: Path, *, readonly: bool = True):
     con.execute("SET memory_limit='64GB'")
     con.execute("SET max_temp_directory_size='64GiB'")
     con.execute("SET temp_directory=?", [str(run / "tmp" / path.stem)])
-    con.execute("SET preserve_insertion_order=false")
     return con
 
 
@@ -319,7 +318,7 @@ class History:
         self.con = connect(run / "canonical/history.duckdb", run)
         transaction_view(self.con, run)
         articles = _to_arrow_table(
-            self.con.execute("SELECT * FROM articles ORDER BY article_id")
+            self.con.sql("SELECT * FROM articles ORDER BY article_id")
         ).to_pylist()
         self.articles = {row["article_id"]: row for row in articles}
         self.candidate_catalog = [
@@ -340,7 +339,7 @@ class History:
     def customers(self, users: list[str]) -> dict:
         self.con.register("requested_users", pa.table({"customer_id": users}))
         rows = _to_arrow_table(
-            self.con.execute(
+            self.con.sql(
                 "SELECT c.* FROM customers c JOIN requested_users USING(customer_id)"
             )
         ).to_pylist()

@@ -7,8 +7,8 @@ only; it never reads outer future labels, updates weights or loads a source text
 or image FAISS index as the learned index. Reload uses the same tensor schema.
 """
 
-from datetime import date
 import gc
+from datetime import date
 from pathlib import Path
 
 import numpy as np

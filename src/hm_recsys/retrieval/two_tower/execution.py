@@ -209,7 +209,9 @@ class ItemBank:
         if name in self.inflight:
             self.inflight[name].synchronize()
         buffers = self.buffers.get(name)
-        if buffers is None or any(len(b) < len(v) for b, v in zip(buffers, values, strict=True)):
+        if buffers is None or any(
+            len(b) < len(v) for b, v in zip(buffers, values, strict=True)
+        ):
             cap = max(self.max_batch, max((len(v) for v in values), default=512))
             buffers = tuple(
                 torch.empty((cap, *v.shape[1:]), dtype=v.dtype, pin_memory=True)

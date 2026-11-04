@@ -82,38 +82,40 @@ def fuse(
                     }
                     fallback = {user: set() for user in batch}
                     for channel in CHANNELS:
-                        rel = con.execute(
+                        rows_ch = con.execute(
                             (
-                                f"""SELECT c.* FROM ch_{channel} c JOIN
+                                f"""SELECT c.customer_id, c.cutoff_date, c.article_id,
+                                c.source_rank, c.raw_score, c.trend_global_backfill
+                                FROM ch_{channel} c JOIN
                                 fusion_users USING(customer_id)
                                 WHERE c.customer_id>=? AND c.customer_id<=?
-                            ORDER BY customer_id,source_rank"""
+                            ORDER BY c.customer_id, c.source_rank"""
                             ),
                             [
                                 min(batch),
                                 max(batch),
                             ],
-                        )
-                        to_arrow = getattr(rel, "to_arrow_table", None) or getattr(
-                            rel, "fetch_arrow_table"
-                        )
-                        records = to_arrow().to_pylist()
-                        for record in records:
-                            user = record["customer_id"]
+                        ).fetchall()
+                        rows_ch.sort(key=lambda r: (r[0], r[3]))
+                        for (
+                            user,
+                            row_cutoff,
+                            article_id,
+                            source_rank,
+                            raw_score,
+                            backfill,
+                        ) in rows_ch:
                             values = outputs[user][channel]
-                            if (
-                                record["cutoff_date"] != cutoff
-                                or record["source_rank"] != len(values) + 1
-                            ):
+                            if row_cutoff != cutoff or source_rank != len(values) + 1:
                                 raise ValueError("Source rank/cutoff contract changed")
-                            values.append((record["article_id"], record["raw_score"]))
-                            if record["trend_global_backfill"]:
+                            values.append((article_id, raw_score))
+                            if backfill:
                                 if channel != "trend":
                                     raise ValueError(
                                         "Only Trend can carry "
                                         "global fallback provenance"
                                     )
-                                fallback[user].add(record["article_id"])
+                                fallback[user].add(article_id)
                     records = []
                     candidates = {}
                     predictions = {}

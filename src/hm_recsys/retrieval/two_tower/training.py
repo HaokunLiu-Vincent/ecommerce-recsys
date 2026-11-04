@@ -113,10 +113,12 @@ def _gpu_topk_indices(
 def internal_recall(
     model: TwoTower, encoder: SqlEncoder, run: Path, device: torch.device
 ) -> tuple[float, int]:
-    """Daily full-truth cohort Recall@50, 100% vectorized via torch.matmul + torch.topk."""
+    """Daily full-truth cohort Recall@50, vectorized via torch.matmul + torch.topk."""
     history = encoder.history_store
     vectors = item_vectors(model, encoder, run / "tmp/internal_vectors.npy", device)
-    item_tensor = torch.as_tensor(np.asarray(vectors), dtype=torch.float32, device=device)
+    item_tensor = torch.as_tensor(
+        np.asarray(vectors), dtype=torch.float32, device=device
+    )
     cat_to_idx = {aid: idx for idx, aid in enumerate(history.catalog)}
     emit(
         "tower_internal_validation",
@@ -194,7 +196,9 @@ def cached_internal_recall(model, encoder, prepared, run, device, timing):
     """Same complete daily population; GPU vectorized via torch.matmul + torch.topk."""
     with timing.span("internal_catalog_encoding"):
         vectors = item_vectors(model, encoder, run / "tmp/internal_vectors.npy", device)
-    item_tensor = torch.as_tensor(np.asarray(vectors), dtype=torch.float32, device=device)
+    item_tensor = torch.as_tensor(
+        np.asarray(vectors), dtype=torch.float32, device=device
+    )
     import pyarrow.parquet as pq
 
     internal_total = sum(
@@ -229,9 +233,7 @@ def cached_internal_recall(model, encoder, prepared, run, device, timing):
                 uv = model.user_vectors(*encoder.bank.transfer("users", inputs))
                 with timing.span("internal_retrieval"):
                     topk_idx = _gpu_topk_indices(uv, active_tensor, active_idx, 50)
-            for context, pred_row, has in zip(
-                contexts, topk_idx, present, strict=True
-            ):
+            for context, pred_row, has in zip(contexts, topk_idx, present, strict=True):
                 truth = {
                     prepared.catalog[j]
                     for j in positive[offsets[context] : offsets[context + 1]]
@@ -716,7 +718,8 @@ def fit(run: Path, profile: dict, options: dict) -> None:
     finally:
         write_json(run / "tower_performance.json", timing.summary())
         history.close()
-        del model, optimizer, scheduler, bank, encoder
+        model.cpu()
+        optimizer.zero_grad(set_to_none=True)
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

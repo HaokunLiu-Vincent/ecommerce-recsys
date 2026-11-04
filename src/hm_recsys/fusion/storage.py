@@ -79,26 +79,23 @@ class CandidateReader:
         if not users:
             return result
         self.con.register("candidate_users", pa.table({"customer_id": users}))
-        rel = self.con.execute(
+        rows = self.con.execute(
             (
-                """SELECT c.* FROM fused_candidates c JOIN candidate_users
+                """SELECT c.customer_id, c.cutoff_date, c.article_id, c.hits, c.rrf
+                FROM fused_candidates c JOIN candidate_users
                 USING(customer_id) WHERE c.customer_id>=? AND c.customer_id<=?
-            ORDER BY customer_id,article_id"""
+            ORDER BY c.customer_id, c.article_id"""
             ),
             [min(users), max(users)],
-        )
-        to_arrow = getattr(rel, "to_arrow_table", None) or getattr(
-            rel, "fetch_arrow_table"
-        )
-        rows = to_arrow().to_pylist()
+        ).fetchall()
+        rows.sort(key=lambda r: (r[0], r[2]))
         seen = set()
-        for row in rows:
-            user, item = row["customer_id"], row["article_id"]
-            if row["cutoff_date"] != self.cutoff or (user, item) in seen:
+        for user, row_cutoff, item, row_hits, row_rrf in rows:
+            if row_cutoff != self.cutoff or (user, item) in seen:
                 raise ValueError("Native candidate key/cutoff mismatch")
             seen.add((user, item))
             hits = {}
-            for source in row["hits"]:
+            for source in row_hits:
                 channel = source["channel"]
                 rank = source["source_rank"]
                 score = source[("raw_score")]
@@ -112,7 +109,7 @@ class CandidateReader:
                 hits[channel] = Hit(score, rank, source["trend_global_backfill"])
             candidate = Candidate(item, hits)
             if not hits or not math.isclose(
-                candidate.rrf, row["rrf"], rel_tol=1e-12, abs_tol=1e-15
+                candidate.rrf, row_rrf, rel_tol=1e-12, abs_tol=1e-15
             ):
                 raise ValueError("Native RRF/source mismatch")
             result[user].append(candidate)
